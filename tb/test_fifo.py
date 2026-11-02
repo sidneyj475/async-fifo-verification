@@ -191,3 +191,190 @@ async def test_fifo_underflow(dut):
     assert int(dut.rempty.value) == 1, (
         "FIFO should be empty after all valid reads"
     )
+
+@cocotb.test()
+async def test_fifo_concurrent(dut):
+    start_clocks(dut, wperiod=10, rperiod=14)
+    await reset_fifo(dut)
+
+    test_data = [
+        0xA5, 0x3C, 0xF0, 0x12,
+        0xB6, 0x08, 0xF9, 0xD0,
+        0xE4, 0xC8, 0x75, 0x89,
+        0xA1, 0xE7, 0x15, 0x43,
+    ]
+
+    async def writer():
+        for value in test_data:
+            # Wait until FIFO can accept a write
+            while int(dut.wfull.value) == 1:
+                await RisingEdge(dut.wclk)
+                await Timer(1, unit="ns")
+
+            await write_fifo(dut, value)
+
+    async def reader():
+        for expected in test_data:
+            actual = await read_fifo(dut)
+
+            assert actual == expected, (
+                f"Expected {expected:#04x}, "
+                f"got {actual:#04x}"
+            )
+
+    writer_task = cocotb.start_soon(writer())
+    reader_task = cocotb.start_soon(reader())
+
+    await writer_task
+    await reader_task
+
+    assert int(dut.rempty.value) == 1
+
+@cocotb.test()
+async def test_fifo_wraparound(dut):
+    start_clocks(dut)
+    await reset_fifo(dut)
+
+    depth = 16
+    total_transfers = depth * 4
+
+    # Generate distinct values to detect ordering errors.
+    test_data = [
+        (i * 37 + 0xA5) & 0xFF
+        for i in range(total_transfers)
+    ]
+
+    # Write and read each value.
+    for i, expected in enumerate(test_data):
+        await write_fifo(dut, expected)
+
+        actual = await read_fifo(dut)
+
+        assert actual == expected, (
+            f"Transfer {i}: expected {expected:#04x}, "
+            f"got {actual:#04x}"
+        )
+
+    assert int(dut.rempty.value) == 1, (
+        "FIFO should be empty after all transfers"
+    )
+
+    assert int(dut.wfull.value) == 0, (
+        "FIFO should not be full after all transfers"
+    )
+
+@cocotb.test()
+async def test_fifo_mid_reset(dut):
+    start_clocks(dut)
+    await reset_fifo(dut)
+
+    # Fill the FIFO partially.
+    old_data = [0x11, 0x22, 0x33, 0x44, 0x55]
+
+    for value in old_data:
+        await write_fifo(dut, value)
+
+    # Confirm FIFO contains data.
+    for _ in range(10):
+        await FallingEdge(dut.rclk)
+        if int(dut.rempty.value) == 0:
+            break
+    else:
+        raise AssertionError(
+            "FIFO remained empty after writes"
+        )
+
+    # Assert both resets while data is present.
+    dut.winc.value = 0
+    dut.rinc.value = 0
+    dut.wrst_n.value = 0
+    dut.rrst_n.value = 0
+
+    await Timer(50, unit="ns")
+
+    assert int(dut.rempty.value) == 1, (
+        "FIFO should be empty after reset"
+    )
+    assert int(dut.wfull.value) == 0, (
+        "FIFO should not be full after reset"
+    )
+
+    # Release reset and allow both domains to settle.
+    dut.wrst_n.value = 1
+    dut.rrst_n.value = 1
+
+    await Timer(50, unit="ns")
+
+    assert int(dut.rempty.value) == 1
+
+    # Write new data after reset.
+    new_data = [0xA5, 0x3C, 0xF0, 0x12]
+
+    for value in new_data:
+        await write_fifo(dut, value)
+
+    # Verify the FIFO operates normally after reset.
+    for expected in new_data:
+        actual = await read_fifo(dut)
+
+        assert actual == expected, (
+            f"Expected {expected:#04x}, "
+            f"got {actual:#04x}"
+        )
+
+    assert int(dut.rempty.value) == 1
+
+async def run_clock_ratio_test(dut, wperiod, rperiod):
+    start_clocks(dut, wperiod=wperiod, rperiod=rperiod)
+    await reset_fifo(dut)
+
+    test_data = [
+        (i * 37 + 0xA5) & 0xFF
+        for i in range(32)
+    ]
+
+    async def writer():
+        for value in test_data:
+            while int(dut.wfull.value) == 1:
+                await RisingEdge(dut.wclk)
+                await Timer(1, unit="ns")
+
+            await write_fifo(dut, value)
+
+    async def reader():
+        for expected in test_data:
+            actual = await read_fifo(dut, timeout_cycles=100)
+
+            assert actual == expected, (
+                f"Clock ratio {wperiod}:{rperiod} - "
+                f"Expected {expected:#04x}, "
+                f"got {actual:#04x}"
+            )
+
+    writer_task = cocotb.start_soon(writer())
+    reader_task = cocotb.start_soon(reader())
+
+    await writer_task
+    await reader_task
+
+    assert int(dut.rempty.value) == 1
+
+
+@cocotb.test()
+async def test_fifo_fast_write(dut):
+    await run_clock_ratio_test(dut, 10, 20)
+
+
+@cocotb.test()
+async def test_fifo_fast_read(dut):
+    await run_clock_ratio_test(dut, 20, 10)
+
+
+@cocotb.test()
+async def test_fifo_equal_clocks(dut):
+    await run_clock_ratio_test(dut, 10, 10)
+
+
+@cocotb.test()
+async def test_fifo_unequal_clocks(dut):
+    await run_clock_ratio_test(dut, 11, 17)
