@@ -5,7 +5,7 @@ from cocotb.triggers import FallingEdge, RisingEdge, Timer
 
 
 def start_clocks(dut, wperiod=10, rperiod=14):
-    # Start write and read clocks
+     # Start write and read clocks
     dut.wclk.value = 0
     dut.rclk.value = 0
 

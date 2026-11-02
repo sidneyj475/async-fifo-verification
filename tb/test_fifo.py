@@ -19,8 +19,7 @@ async def test_fifo_basic(dut):
     dut.rrst_n.value = 0
 
     # Start independent clocks
-    cocotb.start_soon(Clock(dut.wclk, 10, unit="ns").start())
-    cocotb.start_soon(Clock(dut.rclk, 14, unit="ns").start())
+    start_clocks(dut)
 
     # Hold reset for several clock cycles
     await Timer(50, unit="ns")

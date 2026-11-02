@@ -14,6 +14,10 @@ runner.build(
 
 runner.test(
     hdl_toplevel="fifo1",
-    test_module="test_fifo",
+    test_module=["test_fifo",
+        "test_fifo_scoreboard",
+        "test_fifo_random",
+    ],
     test_dir=str(root / "tb"),
+    
 )

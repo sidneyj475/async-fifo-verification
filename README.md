@@ -50,7 +50,7 @@ Two-stage synchronizers transfer the pointers between clock domains. Each flag i
 
 The design is verified using:
 
-- Verilator 5.032 for RTL linting and simulation
+- Verilator 5.055 for RTL linting and simulation
 - cocotb 2.1.0 for testbenches
 - Python for test automation and reusable verification helper functions
 
