@@ -1,7 +1,7 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 
 
 def start_clocks(dut, wperiod=10, rperiod=14):
@@ -38,38 +38,36 @@ async def reset_fifo(dut):
 
 
 async def write_fifo(dut, value):
-    # Write one word into the FIFO
-    await RisingEdge(dut.wclk)
-    await Timer(1, unit="ns")
+    # Write exactly one word when FIFO is not full
+    await FallingEdge(dut.wclk)
 
     assert int(dut.wfull.value) == 0, (
-        "Attempted write while FIFO full"
+        "Cannot write: FIFO is full"
     )
 
     dut.wdata.value = value
     dut.winc.value = 1
 
-    # Next rising edge accepts the write
     await RisingEdge(dut.wclk)
     await Timer(1, unit="ns")
 
     dut.winc.value = 0
 
 
-async def read_fifo(dut):
-    # Read and return one word from the FIFO
-    # Wait for nonempty in the read clock domain
-    for _ in range(10):
-        await RisingEdge(dut.rclk)
-        await Timer(1, unit="ns")
+async def read_fifo(dut, timeout_cycles=10):
+    # Wait for data, then consume exactly one word
+
+    for _ in range(timeout_cycles):
+        await FallingEdge(dut.rclk)
 
         if int(dut.rempty.value) == 0:
             break
     else:
-        raise AssertionError("FIFO remained empty")
+        raise AssertionError("Timed out waiting for FIFO data")
 
-    # Async read: data is valid before rinc
-    value = int(dut.rdata.value)
+    # First-word fall-through: data is available
+    # before the read pointer advances.
+    expected_data = int(dut.rdata.value)
 
     dut.rinc.value = 1
 
@@ -78,4 +76,5 @@ async def read_fifo(dut):
 
     dut.rinc.value = 0
 
-    return value
+    return expected_data
+

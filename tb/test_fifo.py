@@ -1,7 +1,7 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from fifo_helpers import (
     start_clocks,
     reset_fifo,
@@ -144,4 +144,50 @@ async def test_fifo_full(dut):
     # Verify FIFO is empty after all reads
     assert int(dut.rempty.value) == 1, (
         "FIFO should be empty after reading all 16 values"
+    )
+
+
+@cocotb.test()
+async def test_fifo_underflow(dut):
+    start_clocks(dut)
+    await reset_fifo(dut)
+
+    # FIFO should initially be empty.
+    assert int(dut.rempty.value) == 1
+    assert int(dut.wfull.value) == 0
+
+    # Attempt five reads while empty.
+    for i in range(5):
+        await FallingEdge(dut.rclk)
+
+        assert int(dut.rempty.value) == 1, (
+            f"Empty flag deasserted before underflow {i + 1}"
+        )
+
+        dut.rinc.value = 1
+
+        await RisingEdge(dut.rclk)
+        await Timer(1, unit="ns")
+
+        assert int(dut.rempty.value) == 1, (
+            f"Empty flag cleared after underflow {i + 1}"
+        )
+
+        dut.rinc.value = 0
+
+    # Verify normal operation still works.
+    test_data = [0xA5, 0x3C, 0xF0]
+
+    for value in test_data:
+        await write_fifo(dut, value)
+
+    for expected in test_data:
+        actual = await read_fifo(dut)
+
+        assert actual == expected, (
+            f"Expected {expected:#04x}, got {actual:#04x}"
+        )
+
+    assert int(dut.rempty.value) == 1, (
+        "FIFO should be empty after all valid reads"
     )
