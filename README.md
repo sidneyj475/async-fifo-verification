@@ -7,7 +7,9 @@ The design is based on Clifford E. Cummings' asynchronous FIFO architecture and 
 
 ## Project status
 
-The RTL implementation is complete for the current configuration. Initial directed verification passes, and additional verification is in progress.
+The SystemVerilog RTL and the initial cocotb verification environment are finished for the default 8-bit, 16-entry configuration. All 13 tests pass, covering directed functional tests, scoreboard integration, and reproducible randomized traffic.
+
+The design has only been checked in RTL simulation. FPGA implementation, formal verification, timing analysis, and physical CDC signoff have not been done.
 
 ## Features
 
@@ -48,25 +50,50 @@ Two-stage synchronizers transfer the pointers between clock domains. Each flag i
 
 ## Verification environment
 
-The design is verified using:
+The cocotb environment has:
 
-- Verilator 5.055 for RTL linting and simulation
-- cocotb 2.1.0 for testbenches
-- Python for test automation and reusable verification helper functions
+- Transaction drivers: Reusable Python functions for clock generation, reset sequencing, FIFO writes, and FIFO reads.
+- Transaction monitors: Observe accepted write and read transactions in their respective clock domains.
+- Reference-model scoreboard: Uses a Python queue to compare accepted reads against previously accepted writes and verify FIFO ordering.
+- Randomized stimulus: Generates independent write and read requests using reproducible random seeds.
+- Directed tests: Exercise functional behavior, boundary conditions, clock ratios, and reset scenarios.
 
-Helper functions cover clock generation, reset sequencing, FIFO writes, and FIFO reads.
+The scoreboard records transactions with simulation timestamps and evaluates them in chronological order.
 
-### Directed test results
+### Test results
 
 | Test | Description | Status |
 |---|---|---|
 | `test_fifo_basic` | Reset, single write/read, data integrity, and empty flag | PASS |
-| `test_fifo_ordering` | Four sequential writes and reads, verifying FIFO ordering | PASS |
+| `test_fifo_ordering` | Sequential writes and reads, verifying FIFO ordering | PASS |
 | `test_fifo_full` | Fill all 16 entries, check full flag, attempt overflow, and verify readback | PASS |
+| `test_fifo_underflow` | Verify underflow protection when FIFO is empty | PASS |
+| `test_fifo_concurrent` | Concurrent read and write activity | PASS |
+| `test_fifo_wraparound` | Repeated pointer wraparound and data ordering | PASS |
+| `test_fifo_mid_reset` | Reset during FIFO operation | PASS |
+| `test_fifo_fast_write` | Write clock faster than read clock | PASS |
+| `test_fifo_fast_read` | Read clock faster than write clock | PASS |
+| `test_fifo_equal_clocks` | Equal read and write clock periods | PASS |
+| `test_fifo_unequal_clocks` | Unequal read and write clock periods | PASS |
+| `test_scoreboard_integration` | Validate transaction monitors and reference-model scoreboard | PASS |
+| `test_fifo_random` | Randomized read/write traffic with scoreboard checking | PASS |
 
-Current results: 3 tests passed, 0 failed.
+### Randomized verification
 
-The tests cover only these scenarios and are not exhaustive verification.
+The randomized test uses independent write and read traffic generators on separate clock domains.
+
+Current configuration:
+
+- Write clock period: 10 ns
+- Read clock period: 14 ns
+- Write request probability: 75%
+- Read request probability: 75%
+- Traffic generation: 500 write-clock cycles and 500 read-clock cycles
+- Random seed: `20261101`
+
+After generating traffic, the test drains the remaining FIFO contents and evaluates all recorded transactions with the scoreboard.
+
+For the recorded seed, the test observed 268 accepted writes and 268 accepted reads with no scoreboard mismatches.
 
 ## Running the tests
 
@@ -74,21 +101,21 @@ The tests cover only these scenarios and are not exhaustive verification.
 
 - Linux or WSL Ubuntu
 - Python 3
-- Verilator
-- cocotb
+- Verilator (tested with 5.055)
+- cocotb 2.1.0
 
 ### Setup
 
 Clone the repository and navigate to its directory.
 
-Create a Python virtual environment:
+Create and activate a Python virtual environment:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install the Python dependencies:
+Install dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
@@ -100,7 +127,7 @@ Verify Verilator is available:
 verilator --version
 ```
 
-Run Verilator lint:
+Run RTL linting:
 
 ```bash
 verilator --lint-only -Wall --top-module fifo1 rtl/*.sv
@@ -108,25 +135,28 @@ verilator --lint-only -Wall --top-module fifo1 rtl/*.sv
 
 ### Simulation
 
-Execute the cocotb test suite:
+Run the complete cocotb regression:
 
 ```bash
 python run_tests.py
 ```
 
-The runner compiles the SystemVerilog design using Verilator and executes the Python testbenches.
+The test runner builds the SystemVerilog design with Verilator and runs the directed, scoreboard integration, and randomized tests.
+
+A successful regression reports 13 passing tests and exits with status code `0`.
 
 ## Verification limitations and planned improvements
 
-The current tests cover basic FIFO functionality and directed boundary conditions. 
+The current verification environment covers the default FIFO configuration and selected functional scenarios. It does not establish exhaustive correctness or physical CDC safety.
 
-Planned work:
+Planned improvements:
 
-- Directed tests for underflow protection, concurrent reads and writes, pointer wraparound, and mid-operation reset.
-- A Python reference model and scoreboard that check data integrity and ordering automatically.
-- Constrained-random transaction generation to cover more complex scenarios.
-- SystemVerilog assertions on the FIFO control logic and flag behavior.
-- Functional coverage metrics to show how complete the verification is and which scenarios are still untested.
+- Execute randomized regressions across multiple seeds and clock ratios.
+- Add SystemVerilog assertions for FIFO safety properties and full/empty flag behavior.
+- Add functional coverage metrics for boundary conditions, pointer wraparound, reset, and concurrent operations.
+- Verify additional FIFO parameter configurations.
+- Explore formal verification of pointer and flag logic.
+- Consider FPGA implementation and hardware testing.
 
 ## References
 

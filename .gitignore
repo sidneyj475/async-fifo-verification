@@ -47,3 +47,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+core
+core.*
+.venv*/
